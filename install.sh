@@ -62,8 +62,8 @@ detect_repo() {
 
 # ── Download binary ───────────────────────────────────────────────────────────
 install_binary() {
-  DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}"
-  info "Downloading $BINARY_NAME ..."
+  DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${BINARY_NAME}"
+  info "Downloading latest $BINARY_NAME ..."
   TMP=$(mktemp)
   curl -fsSL "$DOWNLOAD_URL" -o "$TMP" || error "Download failed. Check REPO and VERSION."
   chmod +x "$TMP"
