@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,41 +26,80 @@ type Chunk struct {
 	IndexedAt   time.Time `json:"indexed_at"`
 }
 
+const patternsTTL = 30 * time.Second
+
 // Chunker is responsible for splitting source files into Chunks.
 type Chunker struct {
 	maxChunkSize   int
 	ignorePatterns []*regexp.Regexp
-	projectPath    string // Base project path for ignore patterns and relative file paths
+	projectPath    string
+	customPatterns []string // refreshed from .zed-rag-ignore every patternsTTL
+	patternsMu     sync.RWMutex
+	patternsLoadedAt time.Time
+}
+
+// hardcodedIgnoreDirs are directory name substrings that are always skipped.
+var hardcodedIgnoreDirs = []string{
+	"node_modules", "target", "dist", "build",
+	"__pycache__", "vendor", "coverage", "tmp", "temp", "logs",
+	"__generated__", ".cache",
 }
 
 // New creates and initializes a new Chunker.
 func New(projectPath string, maxChunkSize int) *Chunker {
 	if maxChunkSize <= 0 {
-		maxChunkSize = 100 // Default to 100 lines if invalid size is provided
+		maxChunkSize = 100
 	}
-
-	defaultPatterns := []string{
-		"node_modules/", "target/", "dist/", "build/",
-		"__pycache__/", ".git/", "vendor/", `.*\.lock$`,
-		`.*\.sum$`, `.*\.mod$`, // Exclude all .mod and .sum files by default
+	c := &Chunker{
+		maxChunkSize: maxChunkSize,
+		projectPath:  projectPath,
 	}
+	c.reloadIgnoreFile() // initial load
+	return c
+}
 
-	var compiledPatterns []*regexp.Regexp
-	for _, p := range defaultPatterns {
-		compiledPatterns = append(compiledPatterns, regexp.MustCompile(p))
+// reloadIgnoreFile reads .zed-rag-ignore and updates customPatterns.
+// Called under write lock.
+func (c *Chunker) reloadIgnoreFile() {
+	ignoreFile := filepath.Join(c.projectPath, ".zed-rag-ignore")
+	data, err := ioutil.ReadFile(ignoreFile)
+	var patterns []string
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "#") {
+				patterns = append(patterns, line)
+			}
+		}
 	}
+	c.customPatterns = patterns
+	c.patternsLoadedAt = time.Now()
+}
 
-	return &Chunker{
-		maxChunkSize:   maxChunkSize,
-		ignorePatterns: compiledPatterns,
-		projectPath:    projectPath,
+// refreshPatterns reloads .zed-rag-ignore if patternsTTL has elapsed.
+func (c *Chunker) refreshPatterns() {
+	c.patternsMu.Lock()
+	defer c.patternsMu.Unlock()
+	if time.Since(c.patternsLoadedAt) >= patternsTTL {
+		c.reloadIgnoreFile()
 	}
 }
 
+// maxFileSizeBytes skips files larger than this — likely generated/minified, would exceed embed context.
+const maxFileSizeBytes = 512 * 1024 // 512 KB
+
 // ChunkFile reads a file and splits its content into a slice of Chunks based on language-specific rules.
 func (c *Chunker) ChunkFile(filePath string) ([]Chunk, error) {
-	if c.ShouldSkip(filePath) { // Corrected call
-		return nil, nil // Skip ignored files silently
+	if c.ShouldSkip(filePath) {
+		return nil, nil
+	}
+
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", filePath, err)
+	}
+	if info.Size() > maxFileSizeBytes {
+		return nil, nil // too large to embed — skip silently
 	}
 
 	contentBytes, err := ioutil.ReadFile(filePath)
@@ -319,7 +359,10 @@ func (c *Chunker) chunkSvelte(content string, filePath string) ([]string, []int)
 	return chunks, startLines
 }
 
-// chunkGeneric splits content into chunks of maxChunkSize lines.
+// maxChunkBytes is the hard cap per chunk — keeps content within Ollama's embed context (~8k tokens).
+const maxChunkBytes = 24 * 1024 // 24 KB ≈ 6000 tokens, safe for nomic-embed-text
+
+// chunkGeneric splits content into chunks of maxChunkSize lines, then further splits by byte size.
 func (c *Chunker) chunkGeneric(content string, filePath string) ([]string, []int) {
 	var chunks []string
 	var startLines []int
@@ -331,9 +374,22 @@ func (c *Chunker) chunkGeneric(content string, filePath string) ([]string, []int
 			end = len(lines)
 		}
 		chunkContent := strings.Join(lines[i:end], "\n")
-		if strings.TrimSpace(chunkContent) != "" {
+		if strings.TrimSpace(chunkContent) == "" {
+			continue
+		}
+		// If chunk still exceeds byte limit (e.g. minified/long lines), split by bytes.
+		if len(chunkContent) > maxChunkBytes {
+			for off := 0; off < len(chunkContent); off += maxChunkBytes {
+				end := off + maxChunkBytes
+				if end > len(chunkContent) {
+					end = len(chunkContent)
+				}
+				chunks = append(chunks, chunkContent[off:end])
+				startLines = append(startLines, i+1)
+			}
+		} else {
 			chunks = append(chunks, chunkContent)
-			startLines = append(startLines, i+1) // Line numbers are 1-based
+			startLines = append(startLines, i+1)
 		}
 	}
 	return chunks, startLines
@@ -373,62 +429,66 @@ func (c *Chunker) DetectLanguage(filePath string) string {
 	}
 }
 
-// shouldSkip checks if a file should be ignored based on predefined patterns and .zed-rag-ignore.
+// ShouldSkip reports whether filePath should be excluded from indexing.
 func (c *Chunker) ShouldSkip(filePath string) bool {
-	// First, check against hardcoded ignore patterns
-	for _, pattern := range c.ignorePatterns {
-		if pattern.MatchString(filePath) {
+	// 1. Skip hidden dirs/files (.git, .continue, .idea, .env, etc.)
+	for _, part := range strings.Split(filepath.ToSlash(filePath), "/") {
+		if strings.HasPrefix(part, ".") && len(part) > 1 {
 			return true
 		}
 	}
 
-	// Read .zed-rag-ignore if it exists in the project root
-	ignoreFilePath := filepath.Join(c.projectPath, ".zed-rag-ignore")
-	if _, err := os.Stat(ignoreFilePath); err == nil {
-		ignoreContent, err := ioutil.ReadFile(ignoreFilePath)
-		if err == nil {
-			lines := strings.Split(string(ignoreContent), "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line == "" || strings.HasPrefix(line, "#") {
-					continue
-				}
-				// Convert gitignore-like patterns to regex
-				// Simple glob to regex conversion: replace * with .* and ? with .
-				// Escape dots and forward slashes unless they are part of a special pattern
-				pattern := regexp.QuoteMeta(line)
-				pattern = strings.ReplaceAll(pattern, `\*`, `.*`)
-				pattern = strings.ReplaceAll(pattern, `\?`, `.`)
-				pattern = "^" + pattern // Anchor to the start of the string
+	// 2. Skip hardcoded noisy dirs by name component.
+	base := filepath.Base(filePath)
+	for _, dir := range hardcodedIgnoreDirs {
+		if base == dir {
+			return true
+		}
+	}
 
-				// If pattern is a directory, match it with a trailing slash
-				if strings.HasSuffix(line, "/") {
-					pattern += `.*`
-				}
+	// 3. Skip lock/sum files.
+	if strings.HasSuffix(filePath, ".lock") || strings.HasSuffix(filePath, ".sum") {
+		return true
+	}
 
-				re, err := regexp.Compile(pattern)
-				if err == nil && re.MatchString(filepath.Base(filePath)) { // Match against base name or full path
-					return true
-				}
-				if err == nil && re.MatchString(filePath) {
-					return true
-				}
+	// 4. .zed-rag-ignore — refresh if stale, then match under read lock.
+	c.refreshPatterns()
+	c.patternsMu.RLock()
+	patterns := c.customPatterns
+	c.patternsMu.RUnlock()
+
+	if len(patterns) > 0 {
+		rel, err := filepath.Rel(c.projectPath, filePath)
+		if err != nil {
+			rel = base
+		}
+		rel = filepath.ToSlash(rel)
+		for _, pat := range patterns {
+			if matchIgnorePattern(pat, rel, base) {
+				return true
 			}
 		}
 	}
 
-	// Special handling for go.mod: only skip if it's not explicitly go.mod itself.
-	// This ensures that the global *.mod pattern doesn't prevent go.mod from being indexed.
-	if strings.HasSuffix(filePath, "go.mod") {
-		return false // Never skip go.mod
-	}
-
-	// Skip all other .mod files
-	if strings.HasSuffix(filePath, ".mod") {
-		return true
-	}
-
 	return false
+}
+
+// matchIgnorePattern applies a single gitignore-style pattern.
+// rel is the path relative to project root (forward slashes), base is filepath.Base.
+func matchIgnorePattern(pattern, rel, base string) bool {
+	// Directory pattern: ends with /
+	if strings.HasSuffix(pattern, "/") {
+		dir := strings.TrimSuffix(pattern, "/")
+		return rel == dir || strings.HasPrefix(rel, dir+"/")
+	}
+	// Pattern with slash → match against full relative path
+	if strings.Contains(pattern, "/") {
+		ok, _ := filepath.Match(pattern, rel)
+		return ok
+	}
+	// No slash → match against basename only (like gitignore)
+	ok, _ := filepath.Match(pattern, base)
+	return ok
 }
 
 // hashContent returns the MD5 hash of the given content as a hex string.

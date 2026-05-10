@@ -193,6 +193,7 @@
     <li><a href="#install">Install</a></li>
     <li><a href="#configure">Configure</a></li>
     <li><a href="#cli">CLI</a></li>
+    <li><a href="#ignore">Ignore</a></li>
     <li>
       <a href="https://github.com/gamaops112/zed_rag" target="_blank" rel="noopener" class="nav-gh">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -372,6 +373,87 @@
 <span class="acc">OLLAMA_URL</span>=<span class="str">http://localhost:11434</span>
 <span class="acc">EMBEDDING_MODEL</span>=<span class="str">nomic-embed-text</span></code></pre>
     </div>
+  </div>
+</section>
+
+<!-- IGNORE -->
+<section id="ignore">
+  <div class="slabel">Ignore rules</div>
+  <h2>.zed-rag-ignore</h2>
+  <p class="sdesc">
+    Control exactly what gets indexed. Drop a <code>.zed-rag-ignore</code> file at your project root —
+    gitignore-style patterns, one per line. Changes are picked up automatically within 30 seconds
+    while <code>watch</code> is running, no restart needed.
+  </p>
+
+  <h3 style="font-size:1rem;font-weight:600;margin-bottom:.6rem">Always ignored (built-in)</h3>
+  <p style="color:var(--muted);font-size:.875rem;margin-bottom:1rem;line-height:1.65">
+    These are hardcoded and cannot be overridden:
+  </p>
+  <div class="cb" style="margin-bottom:2rem">
+    <div class="cb-hdr"><span class="cb-lang">always skipped</span></div>
+    <pre><code><span class="cm"># Hidden dirs/files — .git  .continue  .idea  .vscode  .env  etc.</span>
+<span class="cm"># Any path component starting with a dot</span>
+
+<span class="cm"># Dependency / build dirs</span>
+node_modules   target   dist   build   __pycache__
+vendor   coverage   tmp   temp   logs   __generated__   .cache
+
+<span class="cm"># Lock &amp; checksum files</span>
+*.lock   *.sum
+
+<span class="cm"># Files larger than 512 KB (minified / generated)</span></code></pre>
+  </div>
+
+  <h3 style="font-size:1rem;font-weight:600;margin-bottom:.6rem">Per-project .zed-rag-ignore</h3>
+  <p style="color:var(--muted);font-size:.875rem;margin-bottom:1rem;line-height:1.65">
+    Place this file at the root of your project (same level as <code>go.mod</code> / <code>package.json</code> / etc.).
+  </p>
+  <div class="cb" style="margin-bottom:1.5rem">
+    <div class="cb-hdr">
+      <span class="cb-lang">.zed-rag-ignore</span>
+      <button class="copy-btn" onclick="cp(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>copy</button>
+    </div>
+    <pre><code><span class="cm"># Directory pattern (trailing /) — skips entire tree</span>
+docs/
+migrations/
+testdata/
+fixtures/
+snapshots/
+
+<span class="cm"># Filename glob — matches basename only (no slash = any depth)</span>
+*.generated.go
+*.pb.go
+*.min.js
+*.min.css
+
+<span class="cm"># Specific files</span>
+config.toml
+*.env
+*.sh
+
+<span class="cm"># Path with slash — matches relative path from project root</span>
+internal/testutil/fixtures/</code></pre>
+  </div>
+
+  <h3 style="font-size:1rem;font-weight:600;margin-bottom:.75rem">Pattern rules</h3>
+  <div class="cli-wrap" style="margin-bottom:1.5rem">
+    <table class="cli-table">
+      <tr><td>docs/</td><td>Trailing slash → skip entire directory tree. Matches <code>docs/</code> at any depth.</td></tr>
+      <tr><td>*.generated.go</td><td>No slash → matches against filename only. Works at any depth.</td></tr>
+      <tr><td>internal/fixtures/</td><td>Contains slash → matches against path relative to project root.</td></tr>
+      <tr><td># comment</td><td>Lines starting with <code>#</code> are ignored.</td></tr>
+    </table>
+  </div>
+
+  <div class="cb">
+    <div class="cb-hdr"><span class="cb-lang">live reload during watch</span></div>
+    <pre><code><span class="cm"># Edit .zed-rag-ignore while watch is running</span>
+<span class="cm"># New rules take effect within 30 seconds — no restart needed</span>
+
+<span class="cm"># Example: package install drops a new dir mid-session</span>
+$ npm install some-lib          <span class="cm"># watcher picks up some-lib/ immediately</span>
+$ echo "some-lib/" &gt;&gt; .zed-rag-ignore   <span class="cm"># ignored within 30s</span></code></pre>
   </div>
 </section>
 

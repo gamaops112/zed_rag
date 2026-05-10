@@ -4,11 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -111,8 +113,8 @@ func runIndex(args []string) {
 		fatal(err)
 	}
 
-	log.SetOutput(os.Stderr)
-	log.SetFlags(log.Ltime)
+	// Suppress log during index — progress bar is the UI. Errors go via fmt.Fprintf.
+	log.SetOutput(io.Discard)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -126,17 +128,27 @@ func runIndex(args []string) {
 	}
 
 	if *force {
-		fmt.Printf("Clearing existing index for %s ...\n", projectPath)
+		fmt.Fprintf(os.Stderr, "Clearing existing index for %s ...\n", projectPath)
 		if err := q.DeleteProject(ctx); err != nil {
 			fatal(fmt.Errorf("clear index: %w", err))
 		}
 	}
 
-	fmt.Printf("Indexing %s ...\n", projectPath)
-	if err := idx.IndexAll(ctx); err != nil && err != ctx.Err() {
+	fmt.Fprintf(os.Stderr, "Indexing %s ...\n", projectPath)
+	result, err := idx.IndexAllWithProgress(ctx, progressBar(os.Stderr))
+	fmt.Fprintln(os.Stderr) // end progress line
+	if err != nil && err != ctx.Err() {
 		fatal(err)
 	}
-	fmt.Println("Done.")
+	fmt.Fprintf(os.Stderr, "Done. %d indexed, %d up-to-date", result.Indexed, result.UpToDate)
+	if len(result.Errors) > 0 {
+		fmt.Fprintf(os.Stderr, ", %d skipped (errors):\n", len(result.Errors))
+		for _, e := range result.Errors {
+			fmt.Fprintf(os.Stderr, "  ! %s\n", e)
+		}
+	} else {
+		fmt.Fprintln(os.Stderr)
+	}
 }
 
 // runRemove deletes all indexed vectors for a project and exits.
@@ -200,9 +212,12 @@ func runWatch(args []string) {
 	}
 
 	fmt.Fprintf(os.Stderr, "Indexing %s ...\n", projectPath)
-	if err := idx.IndexAll(ctx); err != nil && err != ctx.Err() {
+	result, err := idx.IndexAllWithProgress(ctx, progressBar(os.Stderr))
+	fmt.Fprintln(os.Stderr) // end progress line
+	if err != nil && err != ctx.Err() {
 		fmt.Fprintf(os.Stderr, "IndexAll error: %v\n", err)
 	}
+	fmt.Fprintf(os.Stderr, "Initial index: %d indexed, %d up-to-date, %d errors\n", result.Indexed, result.UpToDate, len(result.Errors))
 
 	fileChanges := make(chan string, 200)
 	fw, err := watcher.New(projectPath, fileChanges)
@@ -210,9 +225,17 @@ func runWatch(args []string) {
 		fatal(err)
 	}
 
+	log.Printf("watch: ready — watching %s for changes (Ctrl+C to stop)", projectPath)
 	fmt.Fprintf(os.Stderr, "Watching %s for changes (Ctrl+C to stop) ...\n", projectPath)
 
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		log.Println("watch: shutdown signal received, stopping...")
+	}()
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -228,6 +251,7 @@ func runWatch(args []string) {
 	}()
 
 	wg.Wait()
+	log.Println("watch: stopped")
 	fmt.Fprintln(os.Stderr, "Watch stopped.")
 }
 
@@ -390,4 +414,21 @@ func drainMetrics(ch <-chan metrics.Metric) {
 func fatal(err error) {
 	fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	os.Exit(1)
+}
+
+// progressBar returns a ProgressFunc that renders a \r-overwriting progress bar to w.
+func progressBar(w io.Writer) indexer.ProgressFunc {
+	const width = 30
+	return func(done, total int, path string) {
+		name := filepath.Base(path)
+		if total == 0 {
+			fmt.Fprintf(w, "%-80s", fmt.Sprintf("\r  indexing... %d files — %s", done, name))
+			return
+		}
+		filled := done * width / total
+		pct := done * 100 / total
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+		line := fmt.Sprintf("\r  [%s] %3d%% (%d/%d) %s", bar, pct, done, total, name)
+		fmt.Fprintf(w, "%-80s", line)
+	}
 }
