@@ -2,7 +2,7 @@
 
 > Local codebase RAG for coding agents. Indexes your code into a vector DB and serves it as context via MCP — so your AI assistant actually understands your codebase.
 
-![Build](https://github.com/__REPO__/actions/workflows/release.yml/badge.svg)
+![Build](https://github.com/gamaops112/zed_rag/actions/workflows/release.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Ubuntu%20%7C%20WSL2-informational)
 ![Go](https://img.shields.io/badge/go-1.22+-00ADD8)
@@ -29,7 +29,7 @@ your files → Ollama (embeddings) → Qdrant (vector store) → zed-rag MCP →
 Install everything in one shot:
 
 ```bash
-curl -fsSL https://github.com/__REPO__/releases/latest/download/setup.sh | bash
+curl -fsSL https://github.com/gamaops112/zed_rag/releases/latest/download/setup.sh | bash
 ```
 
 This installs Docker Engine (native Ubuntu), starts Qdrant as a Docker container with persistent storage, installs Ollama as a systemd service, and pulls the `nomic-embed-text` embedding model.
@@ -39,7 +39,7 @@ This installs Docker Engine (native Ubuntu), starts Qdrant as a Docker container
 ## Installation
 
 ```bash
-curl -fsSL https://github.com/__REPO__/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/gamaops112/zed_rag/releases/latest/download/install.sh | bash
 ```
 
 Installs the `zed-rag` binary to `/usr/local/bin`, writes default config to `~/.zed-rag/config.toml`, and sets up a systemd user service.
@@ -179,7 +179,7 @@ journalctl --user -u zed-rag -f
 ## Build from source
 
 ```bash
-git clone https://github.com/__REPO__.git
+git clone https://github.com/gamaops112/zed_rag.git
 cd zed-rag
 go build -o zed-rag .
 ```
