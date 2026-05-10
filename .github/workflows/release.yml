@@ -75,6 +75,7 @@ jobs:
           sed -i "s/__VERSION__/$VERSION/g" install.sh
           sed -i "s|__REPO__|$REPO|g" install.sh
           sed -i "s|__REPO__|$REPO|g" docs/index.html
+          sed -i "s|__REPO__|$REPO|g" README.md
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v1

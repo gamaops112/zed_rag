@@ -1,8 +1,7 @@
 # Executables
 zed-rag
 
-# Go modules
-go.sum
+
 
 # IDE/Editor specific files
 .idea/
