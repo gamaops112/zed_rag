@@ -35,29 +35,26 @@ check_os() {
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 install_deps() {
-  if ! command -v curl &>/dev/null || ! command -v jq &>/dev/null; then
-    info "Installing curl, jq..."
+  if ! command -v curl &>/dev/null; then
+    info "Installing curl..."
     sudo apt-get update -qq
-    sudo apt-get install -y -qq curl jq
+    sudo apt-get install -y -qq curl
   fi
 }
 
 # ── Repo detection ────────────────────────────────────────────────────────────
 detect_repo() {
-  # REPO and VERSION are injected at release time by CI.
-  # If running from source (not a release), fall back to GitHub API search.
-  if [ "$REPO" != "__REPO__" ] && [ -n "$REPO" ]; then
+  # REPO is injected at release time by CI (e.g. "gamaops112/zed_rag").
+  if [ -n "$REPO" ] && [ "$REPO" != "__REPO__" ]; then
     log "Repo: $REPO"
     return
   fi
-  info "Detecting repo from GitHub API..."
-  REPO=$(curl -sf \
-    "https://api.github.com/search/repositories?q=zed-rag+in:name&sort=stars&per_page=1" \
-    | jq -r '.items[0].full_name' 2>/dev/null || true)
-  if [ -z "$REPO" ] || [ "$REPO" = "null" ]; then
-    error "Could not detect repo. Set REPO=owner/zed-rag and retry:\n  REPO=owner/zed-rag bash install.sh"
-  fi
-  log "Detected repo: $REPO"
+  # Injection failed — refuse to guess.
+  error "REPO was not set by the release build. Download install.sh from the GitHub releases page:
+  https://github.com/gamaops112/zed_rag/releases/latest/download/install.sh
+
+Or set REPO manually and retry:
+  REPO=gamaops112/zed_rag bash install.sh"
 }
 
 # ── Download binary ───────────────────────────────────────────────────────────
