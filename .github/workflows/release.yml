@@ -87,6 +87,12 @@ jobs:
           sed -i "s|__REPO__|$REPO|g" docs/index.html
           sed -i "s|__REPO__|$REPO|g" README.md
 
+      - name: Verify injections
+        run: |
+          grep -q '__REPO__'    install.sh && { echo "ERROR: REPO injection failed in install.sh";    exit 1; } || echo "install.sh REPO   ✓"
+          grep -q '__VERSION__' install.sh && { echo "ERROR: VERSION injection failed in install.sh"; exit 1; } || echo "install.sh VERSION ✓"
+          grep -q '__REPO__'    docs/index.html && { echo "ERROR: REPO injection failed in docs/index.html"; exit 1; } || echo "docs/index.html   ✓"
+
       - name: Commit updated docs back to repo
         env:
           REPO: ${{ github.repository }}
