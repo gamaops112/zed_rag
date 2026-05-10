@@ -12,6 +12,10 @@ import (
 	"zed-rag/internal/qdrant"
 )
 
+// ProgressFunc is called after each file is processed during a full index.
+// done = files processed so far, total = total indexable files, path = current file.
+type ProgressFunc func(done, total int, path string)
+
 // Indexer chunks files, embeds them, and upserts into Qdrant.
 type Indexer struct {
 	projectPath string
@@ -39,21 +43,20 @@ func (i *Indexer) EnsureCollection(ctx context.Context) error {
 	return i.qdrant.EnsureCollection(ctx, len(vec))
 }
 
-// IndexFile chunks, embeds, and upserts a single file into Qdrant.
-// Skips if the file content hash matches what's already stored.
-func (i *Indexer) IndexFile(ctx context.Context, filePath string) error {
+// IndexFile chunks, embeds, and upserts a single file.
+// Returns (true, nil) if indexed, (false, nil) if skipped (hash unchanged), or (false, err).
+func (i *Indexer) IndexFile(ctx context.Context, filePath string) (bool, error) {
 	chunks, err := i.chunker.ChunkFile(filePath)
 	if err != nil {
-		return fmt.Errorf("chunk %s: %w", filePath, err)
+		return false, fmt.Errorf("chunk %s: %w", filePath, err)
 	}
 	if len(chunks) == 0 {
-		return nil
+		return false, nil
 	}
 
-	// Skip if already indexed with same content hash.
 	existing, _ := i.qdrant.GetFileHash(ctx, filePath)
 	if existing != "" && existing == chunks[0].Hash {
-		return nil
+		return false, nil // already up-to-date
 	}
 
 	texts := make([]string, len(chunks))
@@ -62,15 +65,14 @@ func (i *Indexer) IndexFile(ctx context.Context, filePath string) error {
 	}
 	vectors, err := i.embedder.EmbedBatch(ctx, texts)
 	if err != nil {
-		return fmt.Errorf("embed %s: %w", filePath, err)
+		return false, fmt.Errorf("embed %s: %w", filePath, err)
 	}
-	return i.qdrant.Upsert(ctx, chunks, vectors)
+	return true, i.qdrant.Upsert(ctx, chunks, vectors)
 }
 
-// IndexAll walks the project directory and indexes all non-ignored source files.
-func (i *Indexer) IndexAll(ctx context.Context) error {
-	log.Printf("Indexer: starting full index of %s", i.projectPath)
-	var indexed, skipped int
+// CountIndexable returns the number of files that would be indexed (not ignored, detectable language).
+func (i *Indexer) CountIndexable(ctx context.Context) (int, error) {
+	var count int
 	err := filepath.WalkDir(i.projectPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return filepath.SkipDir
@@ -86,24 +88,76 @@ func (i *Indexer) IndexAll(ctx context.Context) error {
 			}
 			return nil
 		}
-		if i.chunker.ShouldSkip(path) {
-			return nil
-		}
-		if i.chunker.DetectLanguage(path) == "plain_text" {
-			return nil
-		}
-		before := indexed
-		if err := i.IndexFile(ctx, path); err != nil {
-			log.Printf("Indexer: skip %s: %v", path, err)
-		} else if indexed == before {
-			skipped++ // hash matched, already up to date
-		} else {
-			indexed++
+		if !i.chunker.ShouldSkip(path) && i.chunker.DetectLanguage(path) != "plain_text" {
+			count++
 		}
 		return nil
 	})
-	log.Printf("Indexer: full index complete — %d indexed, %d already up-to-date", indexed, skipped)
+	return count, err
+}
+
+// IndexResult holds summary counts from a full index run.
+type IndexResult struct {
+	Indexed int
+	UpToDate int
+	Errors  []string // "path: error message" for files that failed
+}
+
+// IndexAll walks the project and indexes all non-ignored source files.
+func (i *Indexer) IndexAll(ctx context.Context) error {
+	_, err := i.IndexAllWithProgress(ctx, nil)
 	return err
+}
+
+// IndexAllWithProgress is like IndexAll but calls fn after each file is processed.
+// Returns an IndexResult summary and the walk error (if any).
+func (i *Indexer) IndexAllWithProgress(ctx context.Context, fn ProgressFunc) (IndexResult, error) {
+	total, err := i.CountIndexable(ctx)
+	if err != nil && err != ctx.Err() {
+		return IndexResult{}, err
+	}
+
+	log.Printf("Indexer: starting full index of %s (%d files)", i.projectPath, total)
+	var res IndexResult
+	var done int
+
+	err = filepath.WalkDir(i.projectPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return filepath.SkipDir
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if d.IsDir() {
+			if i.chunker.ShouldSkip(path) && path != i.projectPath {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if i.chunker.ShouldSkip(path) || i.chunker.DetectLanguage(path) == "plain_text" {
+			return nil
+		}
+
+		done++
+		ok, indexErr := i.IndexFile(ctx, path)
+		if indexErr != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", path, indexErr))
+		} else if ok {
+			res.Indexed++
+		} else {
+			res.UpToDate++
+		}
+
+		if fn != nil {
+			fn(done, total, path)
+		}
+		return nil
+	})
+
+	log.Printf("Indexer: done — %d indexed, %d up-to-date, %d errors", res.Indexed, res.UpToDate, len(res.Errors))
+	return res, err
 }
 
 // Start processes file change events until ctx is cancelled or the channel closes.
@@ -116,9 +170,10 @@ func (i *Indexer) Start(ctx context.Context, fileChanges <-chan string) {
 			if !ok {
 				return
 			}
-			if err := i.IndexFile(ctx, filePath); err != nil {
+			ok, err := i.IndexFile(ctx, filePath)
+			if err != nil {
 				log.Printf("Indexer: failed to index %s: %v", filePath, err)
-			} else {
+			} else if ok {
 				log.Printf("Indexer: re-indexed %s", filePath)
 			}
 		}

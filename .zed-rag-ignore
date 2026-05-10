@@ -1,0 +1,23 @@
+# Generated / binary
+zed-rag
+docs/
+snapshots/
+
+# Config / secrets
+config.toml
+config.example.toml
+*.toml
+*.log
+*.env
+
+# Shell scripts (not source code)
+*.sh
+
+# Go module files (already hardcoded but explicit)
+go.sum
+go.mod
+
+# Misc docs / notes
+README.md
+context.md
+rule.md
