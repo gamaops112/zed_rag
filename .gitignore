@@ -1,0 +1,22 @@
+# Executables
+zed-rag
+
+# Go modules
+go.sum
+
+# IDE/Editor specific files
+.idea/
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+log/
+
+# Test results
+*.test
+*.out
+
+# Config files
+config.toml
+.env

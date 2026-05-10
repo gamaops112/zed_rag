@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Zed-RAG Dashboard</title>
+        <!-- Chart.js CDN -->
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+        <style>
+            body {
+                font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 0;
+                background-color: #f0f2f5;
+                color: #333;
+                line-height: 1.6;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 20px auto;
+                padding: 20px;
+                background: #ffffff;
+                border-radius: 10px;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            }
+            header {
+                text-align: center;
+                padding-bottom: 20px;
+                border-bottom: 1px solid #eee;
+                margin-bottom: 20px;
+            }
+            header h1 {
+                color: #0056b3;
+                margin: 0;
+                font-size: 2.5em;
+            }
+            header p {
+                color: #666;
+                font-size: 0.9em;
+                margin-top: 5px;
+            }
+            .row {
+                display: flex;
+                flex-wrap: wrap;
+                margin-bottom: 20px;
+                gap: 20px;
+            }
+            .card {
+                flex: 1;
+                min-width: 280px;
+                background: #e9f5ff;
+                border-left: 5px solid #007bff;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+            }
+            .card h3 {
+                margin-top: 0;
+                color: #007bff;
+                font-size: 1.2em;
+            }
+            .card p {
+                margin: 5px 0;
+                font-size: 1.1em;
+                color: #555;
+            }
+            .card .value {
+                font-size: 1.8em;
+                font-weight: bold;
+                color: #003366;
+            }
+            .status-indicator {
+                display: inline-block;
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                margin-right: 8px;
+            }
+            .status-healthy {
+                background-color: #28a745;
+            }
+            .status-unhealthy {
+                background-color: #dc3545;
+            }
+            .status-loading {
+                background-color: #ffc107;
+            }
+
+            .chart-card {
+                flex: 1;
+                min-width: 450px;
+                background: #ffffff;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+                border: 1px solid #eee;
+            }
+            .chart-card canvas {
+                max-height: 300px;
+            }
+            .list-card {
+                flex: 1;
+                min-width: 280px;
+                background: #ffffff;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+                border: 1px solid #eee;
+            }
+            .list-card h3 {
+                color: #0056b3;
+                margin-top: 0;
+            }
+            .list-card ul {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }
+            .list-card li {
+                padding: 8px 0;
+                border-bottom: 1px dotted #eee;
+                font-size: 0.95em;
+            }
+            .list-card li:last-child {
+                border-bottom: none;
+            }
+            @media (max-width: 768px) {
+                .row {
+                    flex-direction: column;
+                }
+                .card,
+                .chart-card,
+                .list-card {
+                    min-width: unset;
+                    width: 100%;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>Zed-RAG Dashboard</h1>
+                <p>
+                    Project Path: <span id="project-path">Loading...</span> |
+                    Last Updated: <span id="last-updated">Loading...</span>
+                </p>
+            </header>
+
+            <h2>Service Health</h2>
+            <div class="row" id="health-row">
+                <div class="card">
+                    <h3>Qdrant</h3>
+                    <p>
+                        <span
+                            class="status-indicator"
+                            id="qdrant-health-indicator"
+                        ></span
+                        ><span id="qdrant-health-status">Loading...</span>
+                    </p>
+                </div>
+                <div class="card">
+                    <h3>Ollama (Embedder)</h3>
+                    <p>
+                        <span
+                            class="status-indicator"
+                            id="ollama-health-indicator"
+                        ></span
+                        ><span id="ollama-health-status">Loading...</span>
+                    </p>
+                </div>
+                <div class="card">
+                    <h3>MCP Server</h3>
+                    <p>
+                        <span
+                            class="status-indicator"
+                            id="mcp-health-indicator"
+                        ></span
+                        ><span id="mcp-health-status">Loading...</span>
+                    </p>
+                </div>
+            </div>
+
+            <h2>Metrics Snapshot</h2>
+            <div class="row" id="stats-cards-row">
+                <div class="card">
+                    <h3>Total Queries</h3>
+                    <p class="value" id="mcp-total-queries">Loading...</p>
+                </div>
+                <div class="card">
+                    <h3>Local Queries</h3>
+                    <p class="value" id="mcp-local-queries">Loading...</p>
+                </div>
+                <div class="card">
+                    <h3>AI Queries</h3>
+                    <p class="value" id="mcp-ai-queries">Loading...</p>
+                </div>
+                <div class="card">
+                    <h3>Avg Query Response Time</h3>
+                    <p class="value" id="mcp-avg-query">Loading...</p>
+                </div>
+            </div>
+
+            <h2>Charts</h2>
+            <div class="row" id="charts-row">
+                <div class="chart-card">
+                    <h3>Queries per Hour (Last 24h)</h3>
+                    <canvas id="queriesPerHourChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h3>Local vs AI Query Ratio</h3>
+                    <canvas id="queryRatioChart"></canvas>
+                </div>
+            </div>
+
+            <h2>Qdrant Information</h2>
+            <div class="row" id="qdrant-info-row">
+                <div class="card">
+                    <h3>Total Vectors Indexed</h3>
+                    <p class="value" id="qdrant-vectors">Loading...</p>
+                </div>
+                <div class="card">
+                    <h3>Storage Used</h3>
+                    <p class="value" id="qdrant-storage">Loading...</p>
+                </div>
+                <div class="list-card">
+                    <h3>Top 5 Most Retrieved Files</h3>
+                    <ul id="top-files">
+                        <li>Loading...</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let queriesPerHourChart;
+            let queryRatioChart;
+
+            function setStatus(elementId, status) {
+                const indicator = document.getElementById(
+                    elementId + "-indicator",
+                );
+                const statusText = document.getElementById(
+                    elementId + "-status",
+                );
+
+                statusText.textContent = status;
+                indicator.className = "status-indicator"; // Reset class
+                if (status === "Healthy") {
+                    indicator.classList.add("status-healthy");
+                } else if (
+                    status.startsWith("Error") ||
+                    status === "Unhealthy"
+                ) {
+                    indicator.classList.add("status-unhealthy");
+                } else {
+                    indicator.classList.add("status-loading");
+                }
+            }
+
+            async function fetchStats() {
+                try {
+                    const response = await fetch("/api/stats");
+                    const data = await response.json();
+
+                    // Header
+                    document.getElementById("project-path").textContent =
+                        data.projectPath || "N/A";
+                    document.getElementById("last-updated").textContent =
+                        new Date(data.lastUpdated).toLocaleString();
+
+                    // Health Row
+                    setStatus("qdrant-health", data.qdrant.status);
+                    setStatus("ollama-health", data.ollama.status);
+                    // MCP server health is usually tied to the overall health of this dashboard process itself
+                    // For now, we assume if /api/stats responds, MCP is "running".
+                    // In a more complex system, MCP would have its own health endpoint.
+                    setStatus("mcp-health", "Healthy");
+
+                    // Stats Cards Row
+                    document.getElementById("mcp-total-queries").textContent =
+                        data.mcp.totalQueries.toLocaleString();
+                    document.getElementById("mcp-local-queries").textContent =
+                        data.mcp.localQueries.toLocaleString();
+                    document.getElementById("mcp-ai-queries").textContent =
+                        data.mcp.aiQueries.toLocaleString();
+                    document.getElementById("mcp-avg-query").textContent =
+                        data.mcp.avgQueryMS.toFixed(2) + " ms";
+
+                    // Qdrant Info Row
+                    document.getElementById("qdrant-vectors").textContent =
+                        data.qdrant.totalVectors.toLocaleString();
+                    document.getElementById("qdrant-storage").textContent =
+                        data.qdrant.storageSize;
+
+                    const topFilesList = document.getElementById("top-files");
+                    topFilesList.innerHTML = "";
+                    if (data.topFiles && data.topFiles.length > 0) {
+                        data.topFiles.forEach((file) => {
+                            const li = document.createElement("li");
+                            li.textContent = file;
+                            topFilesList.appendChild(li);
+                        });
+                    } else {
+                        const li = document.createElement("li");
+                        li.textContent = "No files queried yet.";
+                        topFilesList.appendChild(li);
+                    }
+
+                    // Charts
+                    updateQueriesPerHourChart(data.mcp.queriesPerHour);
+                    updateQueryRatioChart(
+                        data.mcp.localQueries,
+                        data.mcp.aiQueries,
+                    );
+                } catch (error) {
+                    console.error("Error fetching stats:", error);
+                    document.getElementById("last-updated").textContent =
+                        "Failed to load stats";
+                    // Set all statuses to unhealthy/error
+                    setStatus("qdrant-health", "Error fetching stats");
+                    setStatus("ollama-health", "Error fetching stats");
+                    setStatus("mcp-health", "Error fetching stats");
+                }
+            }
+
+            function updateQueriesPerHourChart(data) {
+                const ctx = document
+                    .getElementById("queriesPerHourChart")
+                    .getContext("2d");
+                const labels = Array.from(
+                    { length: 24 },
+                    (_, i) => `${i}h ago`,
+                );
+                labels[23] = "Current Hour"; // Adjust the last label
+
+                if (queriesPerHourChart) {
+                    queriesPerHourChart.data.labels = labels;
+                    queriesPerHourChart.data.datasets[0].data = data;
+                    queriesPerHourChart.update();
+                } else {
+                    queriesPerHourChart = new Chart(ctx, {
+                        type: "line",
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                {
+                                    label: "Queries",
+                                    data: data,
+                                    borderColor: "rgb(75, 192, 192)",
+                                    tension: 0.1,
+                                    fill: false,
+                                },
+                            ],
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: "Number of Queries",
+                                    },
+                                },
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: "Time",
+                                    },
+                                },
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false,
+                                },
+                            },
+                        },
+                    });
+                }
+            }
+
+            function updateQueryRatioChart(local, ai) {
+                const ctx = document
+                    .getElementById("queryRatioChart")
+                    .getContext("2d");
+                const total = local + ai;
+                const localPercentage =
+                    total > 0 ? ((local / total) * 100).toFixed(1) : 0;
+                const aiPercentage =
+                    total > 0 ? ((ai / total) * 100).toFixed(1) : 0;
+
+                if (queryRatioChart) {
+                    queryRatioChart.data.datasets[0].data = [local, ai];
+                    queryRatioChart.data.datasets[0].backgroundColor = [
+                        "#007bff",
+                        "#6c757d",
+                    ];
+                    queryRatioChart.data.labels = [
+                        `Local Queries (${localPercentage}%)`,
+                        `AI Queries (${aiPercentage}%)`,
+                    ];
+                    queryRatioChart.update();
+                } else {
+                    queryRatioChart = new Chart(ctx, {
+                        type: "doughnut",
+                        data: {
+                            labels: [
+                                `Local Queries (${localPercentage}%)`,
+                                `AI Queries (${aiPercentage}%)`,
+                            ],
+                            datasets: [
+                                {
+                                    data: [local, ai],
+                                    backgroundColor: ["#007bff", "#6c757d"],
+                                    hoverOffset: 4,
+                                },
+                            ],
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: "bottom",
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function (context) {
+                                            let label = context.label || "";
+                                            if (label) {
+                                                label += ": ";
+                                            }
+                                            if (context.parsed !== null) {
+                                                label +=
+                                                    context.parsed.toLocaleString();
+                                            }
+                                            return label;
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    });
+                }
+            }
+
+            // Initial fetch and set interval
+            document.addEventListener("DOMContentLoaded", () => {
+                fetchStats();
+                setInterval(fetchStats, 5000);
+            });
+        </script>
+    </body>
+</html>

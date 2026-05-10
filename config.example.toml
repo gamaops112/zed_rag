@@ -1,0 +1,6 @@
+project_path = "/path/to/your/project"
+qdrant_url = "http://localhost:6333"
+qdrant_collection = "codebase"
+ollama_url = "http://localhost:11434"
+embedding_model = "nomic-embed-text"
+dashboard_port = 7702

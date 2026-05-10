@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go_changed: ${{ steps.check.outputs.go_changed }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for relevant file changes
+        id: check
+        run: |
+          if git rev-parse HEAD~1 &>/dev/null; then
+            DIFF=$(git diff --name-only HEAD~1 HEAD | grep -E '\.go$|^install\.sh$|^setup\.sh$|^docs/' || true)
+          else
+            DIFF=$(git show --name-only --format="" HEAD | grep -E '\.go$|^install\.sh$|^setup\.sh$|^docs/' || true)
+          fi
+          if [ -n "$DIFF" ]; then
+            echo "go_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No relevant files changed, skipping release"
+            echo "go_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute next semver tag
+        id: version
+        if: steps.check.outputs.go_changed == 'true'
+        run: |
+          LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          MAJOR=$(echo "$LATEST" | cut -d. -f1 | tr -d 'v')
+          MINOR=$(echo "$LATEST" | cut -d. -f2)
+          PATCH=$(echo "$LATEST" | cut -d. -f3)
+          VERSION="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Next version: $VERSION"
+
+  release:
+    needs: check-changes
+    if: needs.check-changes.outputs.go_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build binary
+        run: |
+          GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-s -w" \
+            -o zed-rag-linux-amd64 \
+            .
+
+      - name: Inject VERSION and REPO into scripts and docs
+        env:
+          VERSION: ${{ needs.check-changes.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          sed -i "s/__VERSION__/$VERSION/g" install.sh
+          sed -i "s|__REPO__|$REPO|g" install.sh
+          sed -i "s|__REPO__|$REPO|g" docs/index.html
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.check-changes.outputs.version }}
+          name: "zed-rag ${{ needs.check-changes.outputs.version }}"
+          body: "Auto release ${{ needs.check-changes.outputs.version }}"
+          files: |
+            zed-rag-linux-amd64
+            install.sh
+            setup.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
