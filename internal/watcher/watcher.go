@@ -132,11 +132,11 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		switch {
 		case event.Op&fsnotify.Create == fsnotify.Create ||
 			event.Op&fsnotify.Write == fsnotify.Write:
+			log.Printf("watcher: change %s — queuing re-index", event.Name)
 			w.debounceFile(event.Name)
 		case event.Op&fsnotify.Remove == fsnotify.Remove ||
 			event.Op&fsnotify.Rename == fsnotify.Rename:
-			// For REMOVE/RENAME, send immediately for deletion (no debounce needed)
-			// The indexer will distinguish between update (via new hash) and delete
+			log.Printf("watcher: removed %s — queuing delete", event.Name)
 			w.fileChanges <- event.Name
 		}
 	}

@@ -210,9 +210,17 @@ func runWatch(args []string) {
 		fatal(err)
 	}
 
+	log.Printf("watch: ready — watching %s for changes (Ctrl+C to stop)", projectPath)
 	fmt.Fprintf(os.Stderr, "Watching %s for changes (Ctrl+C to stop) ...\n", projectPath)
 
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		log.Println("watch: shutdown signal received, stopping...")
+	}()
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -228,6 +236,7 @@ func runWatch(args []string) {
 	}()
 
 	wg.Wait()
+	log.Println("watch: stopped")
 	fmt.Fprintln(os.Stderr, "Watch stopped.")
 }
 

@@ -1,0 +1,10 @@
+name: New MCP server
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: zed-rag
+    command: wsl
+    args:
+      - /usr/local/bin/zed-rag
+    env:
+      PROJECT_PATH: /home/rana/p_projects/zed_rag

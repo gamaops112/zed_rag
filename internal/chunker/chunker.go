@@ -375,7 +375,16 @@ func (c *Chunker) DetectLanguage(filePath string) string {
 
 // shouldSkip checks if a file should be ignored based on predefined patterns and .zed-rag-ignore.
 func (c *Chunker) ShouldSkip(filePath string) bool {
-	// First, check against hardcoded ignore patterns
+	// Skip any path component starting with '.' — covers .git, .continue, .zed, .idea, .vscode, etc.
+	// Use the full path so relative and absolute paths both work.
+	cleanPath := filepath.ToSlash(filePath)
+	for _, part := range strings.Split(cleanPath, "/") {
+		if strings.HasPrefix(part, ".") && len(part) > 1 {
+			return true
+		}
+	}
+
+	// Check against hardcoded ignore patterns
 	for _, pattern := range c.ignorePatterns {
 		if pattern.MatchString(filePath) {
 			return true
