@@ -89,9 +89,9 @@ jobs:
 
       - name: Verify injections
         run: |
-          grep -q '__REPO__'    install.sh && { echo "ERROR: REPO injection failed in install.sh";    exit 1; } || echo "install.sh REPO   ✓"
-          grep -q '__VERSION__' install.sh && { echo "ERROR: VERSION injection failed in install.sh"; exit 1; } || echo "install.sh VERSION ✓"
-          grep -q '__REPO__'    docs/index.html && { echo "ERROR: REPO injection failed in docs/index.html"; exit 1; } || echo "docs/index.html   ✓"
+          grep -q 'REPO="__REPO__"'       install.sh      && { echo "ERROR: REPO injection failed in install.sh";    exit 1; } || echo "install.sh REPO    ✓"
+          grep -q 'VERSION="__VERSION__"' install.sh      && { echo "ERROR: VERSION injection failed in install.sh"; exit 1; } || echo "install.sh VERSION ✓"
+          grep -q '__REPO__'              docs/index.html && { echo "ERROR: REPO injection failed in docs/index.html"; exit 1; } || echo "docs/index.html    ✓"
 
       - name: Commit updated docs back to repo
         env:
