@@ -44,16 +44,14 @@ install_deps() {
 
 # ── Repo detection ────────────────────────────────────────────────────────────
 detect_repo() {
-  # REPO is injected at release time by CI (e.g. "gamaops112/zed_rag").
-  if [ -n "$REPO" ] && [ "$REPO" != "__REPO__" ]; then
+  # REPO is injected by CI at release time (e.g. "owner/repo").
+  # Valid repo always contains '/'; placeholder never does.
+  if [[ "$REPO" == *"/"* ]]; then
     log "Repo: $REPO"
     return
   fi
-  # Injection failed — refuse to guess.
-  error "REPO was not set by the release build. Download install.sh from the GitHub releases page:
-  https://github.com/gamaops112/zed_rag/releases/latest/download/install.sh
-
-Or set REPO manually and retry:
+  error "REPO was not injected by the release build.
+Download install.sh directly from the GitHub releases page, or set REPO manually:
   REPO=gamaops112/zed_rag bash install.sh"
 }
 
