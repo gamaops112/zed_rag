@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:  # allow manual trigger
 
 jobs:
   check-changes:
@@ -20,11 +21,20 @@ jobs:
       - name: Check for relevant file changes
         id: check
         run: |
-          if git rev-parse HEAD~1 &>/dev/null; then
-            DIFF=$(git diff --name-only HEAD~1 HEAD | grep -E '\.go$|^install\.sh$|^setup\.sh$|^docs/' || true)
+          BEFORE="${{ github.event.before }}"
+          SHA="${{ github.sha }}"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual trigger — always release
+            DIFF="forced"
+          elif [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git rev-parse "$BEFORE" &>/dev/null; then
+            # Initial push or before SHA unavailable — check all files in HEAD
+            DIFF=$(git show --name-only --format="" "$SHA" | grep -E '\.go$|^install\.sh$|^setup\.sh$|^docs/' || true)
           else
-            DIFF=$(git show --name-only --format="" HEAD | grep -E '\.go$|^install\.sh$|^setup\.sh$|^docs/' || true)
+            # Check all files changed across the entire push range
+            DIFF=$(git diff --name-only "$BEFORE" "$SHA" | grep -E '\.go$|^install\.sh$|^setup\.sh$|^docs/' || true)
           fi
+
           if [ -n "$DIFF" ]; then
             echo "go_changed=true" >> "$GITHUB_OUTPUT"
           else
